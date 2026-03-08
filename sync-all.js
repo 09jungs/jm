@@ -15,16 +15,7 @@ const CONFIG = {
   pagesToFetch: 20
 };
 
-function isAllowedTime() {
-  const now = new Date();
-  const day = now.getDay();
-  const hour = now.getHours();
-  
-  if (day < 1 || day > 5) return false;
-  if (hour >= 9 && hour < 12) return true;
-  if (hour >= 13 && hour < 15) return true;
-  return false;
-}
+// 每天每5分钟执行一次，无需时间检查
 
 async function fetchAllPosts(useLogin = true) {
   const browser = await chromium.launch({ headless: true });
@@ -249,12 +240,6 @@ function saveToGitHub(posts) {
 }
 
 async function main() {
-  if (!isAllowedTime()) {
-    const now = new Date();
-    console.log(`[${now.toLocaleString()}] 不在执行时间范围内，跳过`);
-    return;
-  }
-  
   console.log('='.repeat(50));
   console.log('开始抓取 NGA 帖子所有发言...');
   console.log('='.repeat(50));
