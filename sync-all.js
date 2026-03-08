@@ -198,14 +198,14 @@ function saveToGitHub(posts) {
   newPosts.sort((a, b) => b.time.localeCompare(a.time));
   
   const mdLines = newPosts.map(p => {
-    const shortTime = p.time.replace(/^\d{4}-/, '');
+    // 去掉内容开头的时间和多余空格
     let content = p.content
       .replace(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s*/, '')
       .replace(/^\d{2}:\d{2}\s*/, '')
       .replace(/\|/g, '\\|')
       .replace(/\n/g, ' ')
       .trim();
-    return `- ${shortTime} | ${p.username} | ${content}`;
+    return `- ${p.username} | ${content}`;
   });
   
   let existingContent = '';
