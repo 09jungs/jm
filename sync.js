@@ -8,7 +8,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const CONFIG = {
-  ngaUrl: 'https://ngabbs.com/read.php?tid=45974302&authorid=150058', // 只看楼主
+  ngaUrl: 'https://ngabbs.com/read.php?tid=45974302&authorid=150058&opt=262144', // 只看楼主
   targetUid: '150058', // 阿狼-
   targetName: '阿狼-',
   githubRepo: '09jungs/jm',
@@ -82,10 +82,12 @@ async function fetchPosts(useLogin = true) {
       const url = pageNum === 1 ? CONFIG.ngaUrl : `${baseUrl}&page=${pageNum}`;
       
       try {
-        await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+        await page.goto(url, { waitUntil: 'load', timeout: 30000 });
         
         // 等待帖子内容加载
-        await page.waitForSelector('tbody tr', { timeout: 10000 }).catch(() => {});
+        await page.waitForSelector('tbody tr', { timeout: 15000 }).catch(() => {});
+        // 额外等待确保动态内容加载完成
+        await page.waitForTimeout(2000);
         
         // 使用 evaluate 精确提取
         const pagePosts = await page.evaluate((targetUid) => {
