@@ -8,7 +8,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const CONFIG = {
-  ngaUrl: 'https://ngabbs.com/read.php?tid=45974302',
+  ngaUrl: 'https://ngabbs.com/read.php?tid=45974302&authorid=150058', // 只看楼主
   targetUid: '150058', // 阿狼-
   targetName: '阿狼-',
   githubRepo: '09jungs/jm',
@@ -78,7 +78,8 @@ async function fetchPosts(useLogin = true) {
     
     for (let pageNum = startPage; pageNum <= totalPages; pageNum++) {
       console.log(`抓取第 ${pageNum} 页...`);
-      const url = pageNum === 1 ? CONFIG.ngaUrl : `${CONFIG.ngaUrl}&page=${pageNum}`;
+      const baseUrl = CONFIG.ngaUrl.split('&page=')[0];
+      const url = pageNum === 1 ? CONFIG.ngaUrl : `${baseUrl}&page=${pageNum}`;
       
       try {
         await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
