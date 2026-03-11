@@ -81,13 +81,18 @@ async function fetchPosts(useLogin = true) {
       const baseUrl = CONFIG.ngaUrl.split('&page=')[0];
       const url = pageNum === 1 ? CONFIG.ngaUrl : `${baseUrl}&page=${pageNum}`;
       
+      console.log(`  URL: ${url}`);
       try {
-        await page.goto(url, { waitUntil: 'load', timeout: 30000 });
+        await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
         
         // 等待帖子内容加载
         await page.waitForSelector('tbody tr', { timeout: 15000 }).catch(() => {});
         // 额外等待确保动态内容加载完成
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(3000);
+        
+        // 验证是否只看楼主
+        const urlAfterLoad = page.url();
+        console.log(`  加载后URL: ${urlAfterLoad}`);
         
         // 使用 evaluate 精确提取
         const pagePosts = await page.evaluate((targetUid) => {
@@ -97,8 +102,15 @@ async function fetchPosts(useLogin = true) {
           for (const row of rows) {
             try {
               const rowHTML = row.innerHTML || '';
-              // 只处理目标用户的行
+              // 只处理目标用户的行 - 必须是 uid=150058 在用户信息列中
+              // 匹配 #数字 -阿狼- uid=150058 这种格式
               if (!rowHTML.includes(`uid=${targetUid}`)) continue;
+              
+              // 进一步验证 - 确保是阿狼- 发的帖，而不是楼中楼回复
+              const rowText = row.textContent || '';
+              // 排除楼中楼（别人回复楼主的帖子）
+              const isLouzhonglou = rowText.includes('+R by') && !rowText.includes('+R by [-阿狼-]');
+              if (isLouzhonglou) continue;
               
               // 获取正文 - 用整个行的文本然后过滤用户信息
               let content = row.textContent || '';
