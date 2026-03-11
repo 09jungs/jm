@@ -236,7 +236,7 @@ function saveToGitHub(posts, isFirstRun = false) {
     }
   }
   
-  // 保存 MD 格式: 昵称 | 时间 内容
+  // 保存 MD 格式: 昵称 | 楼层 时间 内容
   const mdLines = uniquePosts.slice(0, 100).map(p => {
     let content = p.content
       .replace(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s*/, '')
@@ -246,7 +246,8 @@ function saveToGitHub(posts, isFirstRun = false) {
       .replace(/\|/g, '\\|')
       .replace(/\n/g, ' ')
       .trim();
-    return `- ${p.username} | ${p.time} ${content}`;
+    const floor = p.floor ? `#${p.floor}` : '';
+    return `- ${p.username} | ${floor} ${p.time} ${content}`;
   });
   
   const header = '# 楼主发言记录\n\n最后更新: ' + new Date().toLocaleString() + '\n\n';
