@@ -65,8 +65,10 @@ async function fetchAllPosts(useLogin = true) {
       const url = pageNum === 1 ? CONFIG.ngaUrl : `${CONFIG.ngaUrl}&page=${pageNum}`;
       
       try {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await page.waitForTimeout(1500);
+        await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+        
+        // 等待帖子内容加载
+        await page.waitForSelector('tbody tr', { timeout: 10000 }).catch(() => {});
         
         const pagePosts = await page.evaluate(() => {
           const rows = document.querySelectorAll('tbody tr');
@@ -105,12 +107,8 @@ async function fetchAllPosts(useLogin = true) {
               const timeMatch = rowText.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/);
               const time = timeMatch ? timeMatch[1] : '';
               
-              const cells = row.querySelectorAll('td');
-              let content = '';
-              if (cells.length >= 2) {
-                const lastCell = cells[cells.length - 1];
-                content = lastCell.textContent || '';
-              }
+              // 去掉用户信息部分
+              let content = rowText.replace(/UID:\d+.*?级别:.*?注册:/s, '');
               
               const cleanContent = content
                 .replace(/支持\s*\d+\s*反对/g, '')
@@ -158,12 +156,7 @@ async function fetchAllPosts(useLogin = true) {
 }
 
 function saveToGitHub(posts) {
-  const dataDir = path.join(__dirname, 'data');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-  
-  const dataPath = path.join(dataDir, CONFIG.dataFile);
+  const dataPath = path.join(__dirname, 'data', 'all-posts.md');
   
   let existingFloors = new Set();
   let existingCount = 0;

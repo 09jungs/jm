@@ -14,7 +14,8 @@ const CONFIG = {
   githubRepo: '09jungs/jm',
   githubToken: process.env.GH_TOKEN || '',
   dataFile: 'data/louzhu-posts.json',
-  cookieFile: 'data/cookies.json'
+  cookieFile: 'data/cookies.json',
+  stateFile: 'data/louzhu-state.json' // 保存阿狼最后发帖页码
 };
 
 // 每天每5分钟执行一次，无需时间检查
@@ -60,15 +61,30 @@ async function fetchPosts(useLogin = true) {
     }
     console.log(`共 ${totalPages} 页`);
     
-    const startPage = Math.max(1, totalPages - 9);
+    // 读取上次记录的页码
+    let lastCheckedPage = 1;
+    const statePath = path.join(__dirname, CONFIG.stateFile);
+    if (fs.existsSync(statePath)) {
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+      lastCheckedPage = state.lastPage || 1;
+      console.log(`上次检查到第 ${lastCheckedPage} 页`);
+    }
+    
+    // 从上次页码开始抓取
+    const startPage = Math.max(1, lastCheckedPage);
+    
+    let foundNewPost = false;
+    let maxPageWithTarget = 0;
     
     for (let pageNum = startPage; pageNum <= totalPages; pageNum++) {
       console.log(`抓取第 ${pageNum} 页...`);
       const url = pageNum === 1 ? CONFIG.ngaUrl : `${CONFIG.ngaUrl}&page=${pageNum}`;
       
       try {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await page.waitForTimeout(2000);
+        await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+        
+        // 等待帖子内容加载
+        await page.waitForSelector('tbody tr', { timeout: 10000 }).catch(() => {});
         
         // 使用 evaluate 精确提取
         const pagePosts = await page.evaluate((targetUid) => {
@@ -82,21 +98,16 @@ async function fetchPosts(useLogin = true) {
               if (!rowHTML.includes(`uid=${targetUid}`)) continue;
               
               // 获取正文 - 用整个行的文本然后过滤用户信息
-              let content = '';
-              const lastTd = row.querySelector('td:last-child');
-              if (lastTd) {
-                content = lastTd.textContent || '';
-              }
-              if (!content || content.length < 5) {
-                content = row.textContent || '';
-                // 尝试去掉用户信息部分
-                content = content.replace(/UID:\d+.*?级别:.*?注册:/s, '');
-              }
+              let content = row.textContent || '';
+              // 尝试去掉用户信息部分
+              content = content.replace(/UID:\d+.*?级别:.*?注册:/s, '');
               
-              // 过滤回复/引用帖子 - 如果内容包含 Reply to 或 +R by，说明是别人回复他
-              const isReply = content.includes('Reply to') || content.includes('+R by');
-              if (isReply) {
-                continue; // 跳过回复帖子
+              // 过滤楼中楼 - 只过滤"别人回复楼主的帖子"（楼中楼）
+              // +R by [ - 阿狼-] 表示别人引用了楼主的帖子，这是楼中楼，应该跳过
+              // +R by [其他用户] 表示楼主回复别人，应该保留
+              const isLouzhonglou = content.includes('+R by') && content.match(/\+R by\s*\[.*?\b阿狼.*?\]/);
+              if (isLouzhonglou) {
+                continue; // 跳过楼中楼（别人回复楼主的帖子）
               }
               
               // 获取用户名 - 优先找昵称格式 [xxx]，其次找 UID
@@ -159,11 +170,20 @@ async function fetchPosts(useLogin = true) {
         for (const p of pagePosts) {
           console.log(`  找到: ${p.username}, 楼层: ${p.floor}`);
           posts.push(p);
+          if (pageNum > maxPageWithTarget) {
+            maxPageWithTarget = pageNum;
+          }
         }
         
       } catch (pageErr) {
         console.log(`  页面加载失败: ${pageErr.message}`);
       }
+    }
+    
+    // 保存最新的页码
+    if (maxPageWithTarget > 0) {
+      fs.writeFileSync(statePath, JSON.stringify({ lastPage: maxPageWithTarget }, null, 2));
+      console.log(`已更新检查页码到 ${maxPageWithTarget}`);
     }
     
     return posts;
@@ -173,16 +193,12 @@ async function fetchPosts(useLogin = true) {
 }
 
 function saveToGitHub(posts, isFirstRun = false) {
-  const dataDir = path.join(__dirname, 'data');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-  
-  const dataPath = path.join(dataDir, CONFIG.dataFile);
+  const jsonPath = path.join(__dirname, 'data', 'louzhu-posts.json');
+  const mdPath = path.join(__dirname, 'data', 'louzhu-posts.md');
   
   let existingPosts = [];
-  if (fs.existsSync(dataPath)) {
-    existingPosts = JSON.parse(fs.readFileSync(dataPath, 'utf-8'));
+  if (fs.existsSync(jsonPath)) {
+    existingPosts = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
   }
   
   const existingFloors = new Set(existingPosts.map(p => p.floor));
@@ -209,7 +225,22 @@ function saveToGitHub(posts, isFirstRun = false) {
     }
   }
   
-  fs.writeFileSync(dataPath, JSON.stringify(uniquePosts.slice(0, 100), null, 2));
+  // 保存 JSON
+  fs.writeFileSync(jsonPath, JSON.stringify(uniquePosts.slice(0, 100), null, 2));
+  
+  // 保存 MD 格式
+  const mdLines = uniquePosts.slice(0, 100).map(p => {
+    let content = p.content
+      .replace(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s*/, '')
+      .replace(/^\d{2}:\d{2}\s*/, '')
+      .replace(/\|/g, '\\|')
+      .replace(/\n/g, ' ')
+      .trim();
+    return `- ${p.username} | ${content}`;
+  });
+  
+  const header = '# 楼主发言记录\n\n最后更新: ' + new Date().toLocaleString() + '\n\n';
+  fs.writeFileSync(mdPath, header + mdLines.join('\n') + '\n');
   
   try {
     if (!fs.existsSync(path.join(__dirname, '.git'))) {
@@ -219,7 +250,7 @@ function saveToGitHub(posts, isFirstRun = false) {
     
     execSync('git config user.email "bot@jm.local"', { cwd: __dirname });
     execSync('git config user.name "JM Bot"', { cwd: __dirname });
-    execSync(`git add ${dataPath}`, { cwd: __dirname });
+    execSync(`git add ${jsonPath} ${mdPath}`, { cwd: __dirname });
     execSync(`git commit -m "${isFirstRun ? '初始化' : '更新'}: ${newPosts.length} 条帖子"`, { cwd: __dirname });
     
     try {
