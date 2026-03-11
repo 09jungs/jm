@@ -117,14 +117,6 @@ async function fetchPosts(useLogin = true) {
               // 尝试去掉用户信息部分
               content = content.replace(/UID:\d+.*?级别:.*?注册:/s, '');
               
-              // 过滤楼中楼 - 只过滤"别人回复楼主的帖子"（楼中楼）
-              // +R by [ - 阿狼-] 表示别人引用了楼主的帖子，这是楼中楼，应该跳过
-              // +R by [其他用户] 表示楼主回复别人，应该保留
-              const isLouzhonglou = content.includes('+R by') && content.match(/\+R by\s*\[.*?\b阿狼.*?\]/);
-              if (isLouzhonglou) {
-                continue; // 跳过楼中楼（别人回复楼主的帖子）
-              }
-              
               // 获取用户名 - 优先找昵称格式 [xxx]，其次找 UID
               const links = row.querySelectorAll('a[href*="uid="]');
               let username = '';
