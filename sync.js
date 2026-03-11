@@ -116,6 +116,18 @@ async function fetchPosts(useLogin = true) {
               let content = row.textContent || '';
               // 尝试去掉用户信息部分
               content = content.replace(/UID:\d+.*?级别:.*?注册:/s, '');
+              // 清理杂质：威望、徽章、支持反对等
+              content = content.replace(/威望:\s*\d+.*?(?=徽章:|$)/gs, '');
+              content = content.replace(/徽章:.*?(?=\d{4}-\d{2}-\d{2})/gs, '');
+              content = content.replace(/\d+×/g, '');  // 评价次数
+              content = content.replace(/支持\d+反对/g, '');
+              content = content.replace(/支持\d+/g, '');
+              content = content.replace(/反对\d+/g, '');
+              content = content.replace(/评论\s*$/g, '');
+              content = content.replace(/NGABBS\.COM.*$/g, '');
+              // 去掉回复引用
+              content = content.replace(/Reply to.*?(?=\d{4}-\d{2}-\d{2})/gs, '');
+              content = content.replace(/\+R by.*$/gm, '');
               
               // 获取用户名 - 优先找昵称格式 [xxx]，其次找 UID
               const links = row.querySelectorAll('a[href*="uid="]');
@@ -134,10 +146,10 @@ async function fetchPosts(useLogin = true) {
               }
               if (!username) username = `UID:${targetUid}`;
               
-              // 获取楼层号
+              // 获取楼层号 - 从链接文本中提取，如 #0, #1, #2
               const floorLink = row.querySelector('a[href*="#pid"]');
-              const floorHref = floorLink?.getAttribute('href') || '';
-              const floor = floorHref.match(/#pid(\d+)/)?.[1] || 'unknown';
+              const floorText = floorLink?.textContent?.trim() || '';
+              const floor = floorText.replace('#', '') || 'unknown';
               
               // 获取时间
               const timeMatch = content.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/);
