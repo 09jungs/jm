@@ -236,15 +236,17 @@ function saveToGitHub(posts, isFirstRun = false) {
     }
   }
   
-  // 保存 MD 格式
+  // 保存 MD 格式: 昵称 | 时间 内容
   const mdLines = uniquePosts.slice(0, 100).map(p => {
     let content = p.content
       .replace(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s*/, '')
       .replace(/^\d{2}:\d{2}\s*/, '')
+      .replace(/#\d+/g, '')  // 去掉楼层号
+      .replace(/\d{2}-\d{2}财富:\s*\d+/g, '')  // 去掉财富信息
       .replace(/\|/g, '\\|')
       .replace(/\n/g, ' ')
       .trim();
-    return `- ${p.username} | ${content}`;
+    return `- ${p.username} | ${p.time} ${content}`;
   });
   
   const header = '# 楼主发言记录\n\n最后更新: ' + new Date().toLocaleString() + '\n\n';
