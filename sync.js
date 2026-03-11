@@ -13,7 +13,7 @@ const CONFIG = {
   targetName: '阿狼-',
   githubRepo: '09jungs/jm',
   githubToken: process.env.GH_TOKEN || '',
-  dataFile: 'data/louzhu-posts.json',
+  mdFile: 'data/louzhu-posts.md',
   cookieFile: 'data/cookies.json',
   stateFile: 'data/louzhu-state.json' // 保存阿狼最后发帖页码
 };
@@ -193,12 +193,23 @@ async function fetchPosts(useLogin = true) {
 }
 
 function saveToGitHub(posts, isFirstRun = false) {
-  const jsonPath = path.join(__dirname, 'data', 'louzhu-posts.json');
-  const mdPath = path.join(__dirname, 'data', 'louzhu-posts.md');
+  const mdPath = path.join(__dirname, CONFIG.mdFile);
   
+  // 从 MD 文件解析已有帖子
   let existingPosts = [];
-  if (fs.existsSync(jsonPath)) {
-    existingPosts = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+  if (fs.existsSync(mdPath)) {
+    const mdContent = fs.readFileSync(mdPath, 'utf-8');
+    const lines = mdContent.split('\n');
+    for (const line of lines) {
+      const match = line.match(/^-\s*([^|]+)\|\s*(.+)$/);
+      if (match) {
+        existingPosts.push({
+          username: match[1].trim(),
+          content: match[2].trim(),
+          floor: ''
+        });
+      }
+    }
   }
   
   const existingFloors = new Set(existingPosts.map(p => p.floor));
@@ -225,9 +236,6 @@ function saveToGitHub(posts, isFirstRun = false) {
     }
   }
   
-  // 保存 JSON
-  fs.writeFileSync(jsonPath, JSON.stringify(uniquePosts.slice(0, 100), null, 2));
-  
   // 保存 MD 格式
   const mdLines = uniquePosts.slice(0, 100).map(p => {
     let content = p.content
@@ -250,7 +258,7 @@ function saveToGitHub(posts, isFirstRun = false) {
     
     execSync('git config user.email "bot@jm.local"', { cwd: __dirname });
     execSync('git config user.name "JM Bot"', { cwd: __dirname });
-    execSync(`git add ${jsonPath} ${mdPath}`, { cwd: __dirname });
+    execSync(`git add ${mdPath}`, { cwd: __dirname });
     execSync(`git commit -m "${isFirstRun ? '初始化' : '更新'}: ${newPosts.length} 条帖子"`, { cwd: __dirname });
     
     try {
@@ -275,8 +283,8 @@ async function main() {
   const posts = await fetchPosts(true);
   console.log(`共抓取 ${posts.length} 条帖子`);
   
-  const dataPath = path.join(__dirname, 'data', 'louzhu-posts.json');
-  const isFirstRun = !fs.existsSync(dataPath);
+  const mdPath = path.join(__dirname, CONFIG.mdFile);
+  const isFirstRun = !fs.existsSync(mdPath);
   
   if (posts.length > 0) {
     saveToGitHub(posts, isFirstRun);
