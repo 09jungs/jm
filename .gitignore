@@ -1,6 +1,5 @@
 node_modules/
-package-lock.json
-package.json
+package*.json
 *.log
 *.bak
 data/cookies.json
@@ -8,3 +7,5 @@ data/all-posts-backup.md
 sync-all-fixed.js
 sync-with-login.js
 sync.js.bak
+com.jm.nga-sync*.plist
+run.sh
