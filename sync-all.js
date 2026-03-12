@@ -8,6 +8,7 @@ const { execSync } = require('child_process');
 
 const CONFIG = {
   ngaUrl: 'https://ngabbs.com/read.php?tid=45974302',
+  targetUid: '150058',  // 楼主UID，用于标记
   githubRepo: '09jungs/jm',
   githubToken: process.env.GH_TOKEN || '',
   dataFile: 'data/all-posts.md',
@@ -68,40 +69,41 @@ async function fetchAllPosts(useLogin = true) {
         await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
         
         // 等待帖子内容加载
-        await page.waitForSelector('tbody tr', { timeout: 10000 }).catch(() => {});
+        await page.waitForSelector('tbody tr', { timeout: 15000 }).catch(() => {});
+        await page.waitForTimeout(2000);
         
-        const pagePosts = await page.evaluate(() => {
+        const pagePosts = await page.evaluate((targetUid) => {
           const rows = document.querySelectorAll('tbody tr');
           const results = [];
           
           for (const row of rows) {
             try {
               const links = row.querySelectorAll('a[href*="uid="]');
-              let username = '';
-              let uid = '';
+              if (links.length === 0) continue;
               
-              for (let i = 0; i < links.length; i++) {
-                const href = links[i].getAttribute('href');
-                const text = links[i].textContent.trim();
-                const uidMatch = href.match(/uid=(\d+)/);
-                
-                if (uidMatch) {
-                  uid = uidMatch[1];
-                  if (text.includes('[') && text.includes(']')) {
-                    username = text.replace(/[\[\]]/g, '').trim();
-                    break;
-                  }
-                  if (!username) {
-                    username = text;
-                  }
-                }
+              // 第一个链接是发帖人
+              const firstLink = links[0];
+              const href = firstLink.getAttribute('href');
+              const text = firstLink.textContent.trim();
+              const uidMatch = href.match(/uid=(\d+)/);
+              
+              if (!uidMatch) continue;
+              
+              const uid = uidMatch[1];
+              let username = text;
+              if (text.includes('[') && text.includes(']')) {
+                username = text.replace(/[\[\]]/g, '').trim();
+              } else if (text.startsWith('UID:')) {
+                username = 'UID:' + uid;
               }
               
-              if (!uid) continue;
+              // 检查是否是楼主
+              const isLouzhu = uid === targetUid;
               
+              // 获取楼层号
               const floorLink = row.querySelector('a[href*="#pid"]');
-              const floorHref = floorLink?.getAttribute('href') || '';
-              const floor = floorHref.match(/#pid(\d+)/)?.[1] || 'unknown';
+              const floorText = floorLink?.textContent?.trim() || '';
+              const floor = floorText.replace('#', '') || 'unknown';
               
               const rowText = row.textContent || '';
               const timeMatch = rowText.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/);
@@ -129,6 +131,7 @@ async function fetchAllPosts(useLogin = true) {
                   floor,
                   uid,
                   username: username || 'UID:' + uid,
+                  isLouzhu,
                   time,
                   content: cleanContent.substring(0, 2000)
                 });
@@ -139,8 +142,7 @@ async function fetchAllPosts(useLogin = true) {
           }
           
           return results;
-        });
-        
+        }, CONFIG.targetUid);
         posts.push(...pagePosts);
         
       } catch (pageErr) {
@@ -149,6 +151,11 @@ async function fetchAllPosts(useLogin = true) {
     }
     
     console.log(`共抓取 ${posts.length} 条发言`);
+    
+    // 调试：检查抓取的数据
+    const louzhuCount = posts.filter(p => p.isLouzhu).length;
+    console.log('抓到的帖子中，有', louzhuCount, '条是楼主的');
+    
     return posts;
   } finally {
     await browser.close();
@@ -181,6 +188,13 @@ function saveToGitHub(posts) {
   
   newPosts.sort((a, b) => b.time.localeCompare(a.time));
   
+  // 调试：打印楼主的发言
+  const louzhuPosts = newPosts.filter(p => p.isLouzhu);
+  console.log('DEBUG: 共', louzhuPosts.length, '条楼主发言');
+  for (const p of louzhuPosts.slice(0, 3)) {
+    console.log('  楼主:', p.uid, p.username, 'isLouzhu:', p.isLouzhu);
+  }
+  
   const mdLines = newPosts.map(p => {
     // 去掉内容开头的时间和多余空格
     let content = p.content
@@ -189,7 +203,9 @@ function saveToGitHub(posts) {
       .replace(/\|/g, '\\|')
       .replace(/\n/g, ' ')
       .trim();
-    return `- ${p.username} | ${content}`;
+    // 标记楼主
+    const prefix = p.isLouzhu ? '[楼主] ' : '';
+    return `- ${prefix}${p.username} | ${content}`;
   });
   
   let existingContent = '';
