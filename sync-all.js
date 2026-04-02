@@ -1,4 +1,4 @@
-// NGA 帖子监控脚本 - 监控所有用户发言
+// NGA 帖子监控脚本 - 每次抓取最新100条
 // 抓取帖子最新几页的所有发言，输出为 Markdown 格式
 
 const { chromium } = require('playwright');
@@ -13,7 +13,7 @@ const CONFIG = {
   githubToken: process.env.GH_TOKEN || '',
   dataFile: 'data/all-posts.md',
   cookieFile: 'data/cookies.json',
-  pagesToFetch: 20
+  postsToFetch: 100  // 每次只抓取最新的100条
 };
 
 // 每天每5分钟执行一次，无需时间检查
@@ -59,7 +59,7 @@ async function fetchAllPosts(useLogin = true) {
     }
     console.log(`共 ${totalPages} 页`);
     
-    const startPage = Math.max(1, totalPages - CONFIG.pagesToFetch + 1);
+    const startPage = Math.max(1, totalPages - Math.ceil(CONFIG.postsToFetch / 20) + 1);
     
     for (let pageNum = startPage; pageNum <= totalPages; pageNum++) {
       console.log(`抓取第 ${pageNum} 页...`);
@@ -82,20 +82,40 @@ async function fetchAllPosts(useLogin = true) {
               if (links.length === 0) continue;
               
               // 第一个链接是发帖人
-              const firstLink = links[0];
-              const href = firstLink.getAttribute('href');
-              const text = firstLink.textContent.trim();
-              const uidMatch = href.match(/uid=(\d+)/);
+              // 先找带[]的昵称
+              let username = '';
+              let uid = '';
               
-              if (!uidMatch) continue;
-              
-              const uid = uidMatch[1];
-              let username = text;
-              if (text.includes('[') && text.includes(']')) {
-                username = text.replace(/[\[\]]/g, '').trim();
-              } else if (text.startsWith('UID:')) {
-                username = 'UID:' + uid;
+              for (const link of links) {
+                const text = link.textContent.trim();
+                const href = link.getAttribute('href');
+                const uidMatch = href.match(/uid=(\d+)/);
+                
+                if (text.includes('[') && text.includes(']')) {
+                  username = text.replace(/[\[\]]/g, '').trim();
+                  uid = uidMatch?.[1] || '';
+                  break;
+                }
               }
+              
+              // 如果没找到昵称，用第一个链接
+              if (!username && links.length > 0) {
+                const firstLink = links[0];
+                const href = firstLink.getAttribute('href');
+                const text = firstLink.textContent.trim();
+                const uidMatch = href.match(/uid=(\d+)/);
+                
+                if (!uidMatch) continue;
+                
+                uid = uidMatch[1];
+                if (text.startsWith('UID:')) {
+                  username = 'UID:' + uid;
+                } else {
+                  username = text;
+                }
+              }
+              
+              if (!uid) continue;
               
               // 检查是否是楼主
               const isLouzhu = uid === targetUid;
@@ -109,22 +129,49 @@ async function fetchAllPosts(useLogin = true) {
               const timeMatch = rowText.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/);
               const time = timeMatch ? timeMatch[1] : '';
               
-              // 去掉用户信息部分
-              let content = rowText.replace(/UID:\d+.*?级别:.*?注册:/s, '');
+              // 清理内容：去掉用户信息和各种杂质
+              let content = rowText;
               
-              const cleanContent = content
-                .replace(/支持\s*\d+\s*反对/g, '')
-                .replace(/收藏\s*分享菜单\s*操作菜单/g, '')
-                .replace(/发送自.*NGA官方客户端/g, '')
-                .replace(/发送自\s*\/+/g, '')
-                .replace(/支持\s*\d+/g, '')
-                .replace(/反对/g, '')
-                .replace(/收藏/g, '')
-                .replace(/操作菜单/g, '')
-                .replace(/^\s*\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s*/, '')
-                .replace(/^\s*\d{2}:\d{2}\s*/, '')
-                .replace(/\s+/g, ' ')
-                .trim();
+              // 清理整个用户信息区块
+              content = content.replace(/UID:\d+.*?(?=20\d{2}-\d{2}-\d{2})/s, '');
+              
+              // 清理回复/评分信息
+              content = content.replace(/Reply to.*?\(\d{4}-\d{2}-\d{2} \d{2}:\d{2}\)/g, '');
+              content = content.replace(/\+R by.*?\(\d{4}-\d{2}-\d{2} \d{2}:\d{2}\)/g, '');
+              
+              // 清理附件、ubbcode等（直接截断）
+              const attachIdx = content.indexOf('附件显示');
+              if (attachIdx > -1) {
+                content = content.substring(0, attachIdx);
+              }
+              // 清理 JS 变量
+              content = content.replace(/ubbcode\..*$/g, '');
+              content = content.replace(/commonui\..*$/g, '');
+              
+              // 清理用户属性
+              content = content.replace(/财富:\s*\d+/g, '');
+              content = content.replace(/威望:\s*\d+.*?(?=\d{2}:)/g, '');
+              content = content.replace(/徽章:/g, '');
+              content = content.replace(/级别:/g, '');
+              
+              // 简化日期清理：直接去掉年月日
+              content = content.replace(/\d{4}-\d{2}-\d{2}/g, '');
+              content = content.replace(/\d{2}:\d{2}/g, '');
+              
+              // 清理评分等数字
+              content = content.replace(/\+\d+/g, '');
+              content = content.replace(/反对/g, '');
+              
+              // 清理楼层号和评分（如 #45895 1 或 1）
+              content = content.replace(/#\d+\s*\d*/, '').replace(/\s+\d+$/, '');
+              
+              // 清理多余空格和符号
+              content = content.replace(/\s+/g, ' ').trim();
+              
+              // 去掉开头的时间（如果还有残留）
+              content = content.replace(/^-\d+-\d+\s+/, '');
+              
+              const cleanContent = content;
               
               if (cleanContent && cleanContent.length > 5) {
                 results.push({
@@ -165,26 +212,15 @@ async function fetchAllPosts(useLogin = true) {
 function saveToGitHub(posts) {
   const dataPath = path.join(__dirname, 'data', 'all-posts.md');
   
-  let existingFloors = new Set();
-  let existingCount = 0;
-  if (fs.existsSync(dataPath)) {
-    const content = fs.readFileSync(dataPath, 'utf-8');
-    const lines = content.split('\n').filter(l => l.startsWith('- '));
-    existingCount = lines.length;
-    for (const line of lines) {
-      const match = line.match(/^#(\d+)/);
-      if (match) existingFloors.add(match[1]);
-    }
-  }
-  
-  const newPosts = posts.filter(p => !existingFloors.has(p.floor));
+  // 只保留最新的100条，不再做增量比对
+  const newPosts = posts.slice(0, CONFIG.postsToFetch);
   
   if (newPosts.length === 0) {
     console.log('没有新发言');
     return false;
   }
   
-  console.log(`发现 ${newPosts.length} 条新发言 (已有 ${existingCount} 条)`);
+  console.log(`获取最新 ${newPosts.length} 条发言`);
   
   newPosts.sort((a, b) => b.time.localeCompare(a.time));
   
@@ -205,21 +241,12 @@ function saveToGitHub(posts) {
       .trim();
     // 标记楼主
     const prefix = p.isLouzhu ? '[楼主] ' : '';
-    return `- ${prefix}${p.username} | ${content}`;
+    // 输出格式: - 用户名 | #楼层 内容
+    return `- ${prefix}${p.username} | #${p.floor} ${content}`;
   });
   
-  let existingContent = '';
-  if (fs.existsSync(dataPath)) {
-    existingContent = fs.readFileSync(dataPath, 'utf-8');
-  }
-  
   const header = '# NGA 帖子发言记录\n\n最后更新: ' + new Date().toLocaleString() + '\n\n';
-  const newContent = header + mdLines.join('\n') + '\n\n' + existingContent;
-  
-  const allLines = newContent.split('\n');
-  const keptLines = allLines.slice(0, 5005);
-  
-  fs.writeFileSync(dataPath, keptLines.join('\n'));
+  const newContent = header + mdLines.join('\n');
   
   const userCount = new Set(posts.map(p => p.uid)).size;
   console.log(`涉及 ${userCount} 个用户`);
